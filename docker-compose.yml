@@ -4,14 +4,14 @@ services:
     container_name: postgres_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_DB: mydb
-      POSTGRES_PASSWORD: mypassword123
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-mydb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mypassword123}
     command: >
       postgres
       -c wal_level=replica
       -c archive_mode=on
-      -c archive_command='cp %p /var/lib/postgresql/wal_archive/%f'
+      -c archive_command='test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f'
       -c max_wal_senders=3
       -c wal_keep_size=1GB
       -c checkpoint_timeout=15min
@@ -23,7 +23,7 @@ services:
       - wal_archive:/var/lib/postgresql/wal_archive
       - ./backups:/backups
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d mydb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mydb}"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -37,39 +37,91 @@ services:
     environment:
       - SINGLE_USER_CREDENTIALS_USERNAME=admin
       - SINGLE_USER_CREDENTIALS_PASSWORD=password123456789
+      - NIFI_SENSITIVE_PROPS_KEY=${NIFI_SENSITIVE_PROPS_KEY:-my_secret_key_123456789012}
+      - NIFI_WEB_PROXY_HOST=164.90.236.33:8443
+      - NIFI_WEB_HTTP_HOST=0.0.0.0
+      - NIFI_WEB_HTTPS_HOST=0.0.0.0
     volumes:
       - nifi_conf:/opt/nifi/nifi-current/conf
       - nifi_logs:/opt/nifi/nifi-current/logs
+      - nifi_database:/opt/nifi/nifi-current/database_repository
+      - nifi_flowfile:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
+      - nifi_state:/opt/nifi/nifi-current/state
     depends_on:
       postgres:
         condition: service_healthy
 
-  backup:
+  backup_service:
     image: postgres:15
-    container_name: postgres_backup
+    container_name: postgres_backup_service
     restart: unless-stopped
     environment:
-      PGPASSWORD: mypassword123
+      PGHOST: postgres_db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-admin}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mypassword123}
+      PGDATABASE: ${POSTGRES_DB:-mydb}
+      BACKUP_RETENTION_DAYS: 7
+      TELEGRAM_BOT_TOKEN: "6869952608:AAEQYMFVhh4cDXBWT7X5n8Q7rcPpoCatVRs"
+      TELEGRAM_CHAT_ID: "-4858075310"
     volumes:
       - ./backups:/backups
-      - ./logs:/logs
+      - ./logs:/var/log/backup
+      - ./scripts:/scripts:ro
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      bash -c "
-      echo 'Backup container starting...'
-      mkdir -p /backups /logs
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Starting backup service...'
       
+      # Создаем необходимые директории
+      mkdir -p /backups/full /backups/wal /var/log/backup
+      
+      # Делаем скрипты исполняемыми
+      chmod +x /scripts/*.sh
+      
+      # Устанавливаем cron
+      apt-get update && apt-get install -y cron jq
+      
+      # Настраиваем cron задачи
+      cat > /etc/cron.d/postgres-backup << EOF
+      # Полный бэкап каждые 4 часа
+      0 */4 * * * root /scripts/backup.sh >> /var/log/backup/backup.log 2>&1
+      
+      # Проверка системы каждые 10 минут
+      */10 * * * * root /scripts/monitor.sh >> /var/log/backup/monitor.log 2>&1
+      
+      # Тестирование последнего бэкапа раз в день в 5 утра
+      0 5 * * * root /scripts/test_backup.sh >> /var/log/backup/test.log 2>&1
+      
+      # Очистка старых бэкапов раз в неделю
+      0 3 * * 0 root /scripts/cleanup.sh >> /var/log/backup/cleanup.log 2>&1
+      EOF
+      
+      chmod 0644 /etc/cron.d/postgres-backup
+      
+      # Запускаем cron
+      service cron start
+      
+      # Инициализация системы
+      /scripts/init.sh
+      
+      # Создаем первый бэкап
+      echo 'Creating initial backup...'
+      /scripts/backup.sh || echo 'Initial backup failed, will retry later'
+      
+      # Бесконечный цикл для поддержания контейнера
       while true; do
-        if pg_isready -h postgres_db -U admin -d mydb; then
-          echo '{\"status\":\"healthy\",\"time\":\"'$(date)'\"}' > /logs/status.json
-          echo 'System OK at '$(date)
-        else
-          echo '{\"status\":\"error\",\"time\":\"'$(date)'\"}' > /logs/status.json
-          echo 'PostgreSQL not ready at '$(date)
+        sleep 300
+        # Проверяем что cron работает
+        if ! pgrep cron > /dev/null; then
+          echo 'Cron died, restarting...'
+          service cron start
         fi
-        sleep 60
       done
       "
 
@@ -80,35 +132,20 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./monitor:/usr/share/nginx/html
-      - ./logs:/usr/share/nginx/html/logs
-    command: >
-      sh -c "
-      echo 'server {
-          listen 80;
-          root /usr/share/nginx/html;
-          index index.html;
-          
-          location / {
-              try_files \$uri \$uri/ /index.html;
-          }
-          
-          location /logs/ {
-              alias /usr/share/nginx/html/logs/;
-              autoindex on;
-          }
-          
-          location = /status.json {
-              alias /usr/share/nginx/html/logs/status.json;
-              add_header Content-Type application/json;
-          }
-      }' > /etc/nginx/conf.d/default.conf
-      
-      nginx -g 'daemon off;'
-      "
+      - ./monitor:/var/www/html:ro
+      - ./logs:/var/www/logs:ro
+      - ./backups:/var/www/backups:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backup_service
 
 volumes:
   pgdata:
   wal_archive:
   nifi_conf:
   nifi_logs:
+  nifi_database:
+  nifi_flowfile:
+  nifi_content:
+  nifi_provenance:
+  nifi_state:

@@ -1,1 +1,6 @@
-{"status":"healthy","time":"Fri Jun 27 11:59:10 AM UTC 2025"}
+{
+    "status": "success",
+    "last_backup": "2025-06-27T12:53:08+00:00",
+    "message": "Backup completed successfully. Size: 4.0K, Total backups: 2",
+    "timestamp": "1751028788"
+}

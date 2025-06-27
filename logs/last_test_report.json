@@ -1,0 +1,15 @@
+{
+    "test_date": "2025-06-27T12:53:08+00:00",
+    "backup_file": "/backups/full/backup_20250627_125306.sql.gz",
+    "backup_date": "2025-06-27",
+    "backup_size": "4.0K",
+    "test_database": "test_restore_1751028786",
+    "tables_count": 0,
+    "original_tables_count": 0,
+    "database_size": "7453 kB",
+    "indexes_count": ,
+    "structure_match": true,
+    "query_test": "- Нет таблиц для тестирования",
+    "duration_seconds": 46388,
+    "status": "success"
+}
