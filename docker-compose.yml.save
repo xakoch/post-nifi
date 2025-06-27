@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nifi_db
+      POSTGRES_USER: nifi_user
+      POSTGRES_PASSWORD: YOUR_STRONG_PASSWORD
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nifi_user -d nifi_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nifi:
+    image: apache/nifi:latest
+    container_name: apache_nifi
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      - NIFI_JVM_HEAP_INIT=2g
+      - NIFI_JVM_HEAP_MAX=4g
+      - NIFI_WEB_HTTPS_HOST=0.0.0.0
+      - NIFI_WEB_HTTPS_PORT=8443
+      - NIFI_SENSITIVE_PROPS_KEY=a_very_secret_key_12345
+    volumes:
+      - ./nifi_conf:/opt/nifi/nifi-current/conf
+      - ./nifi_database_repository:/opt/nifi/nifi-current/database_repository
+      - ./nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - ./nifi_content_repository:/opt/nifi/nifi-current/content_repository
+      - ./nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  nifi_conf:
+  nifi_database_repository:
+  nifi_flowfile_repository:
+  nifi_content_repository:
+  nifi_provenance_repository:

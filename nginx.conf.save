@@ -1,0 +1,55 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    server {
+        listen 80;
+        server_name localhost;
+        
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        # Основная страница
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+        
+        # API для статуса и логов
+        location /var/log/backup/ {
+            alias /var/log/backup/;
+            add_header Access-Control-Allow-Origin *;
+            add_header Access-Control-Allow-Methods "GET, OPTIONS";
+            add_header Access-Control-Allow-Headers "Content-Type";
+            
+            # Разрешаем доступ к JSON и LOG файлам
+            location ~* \.(json|log)$ {
+                add_header Content-Type application/json;
+            }
+        }
+        
+        # Прямые ссылки для удобства
+        location = /status.json {
+            alias /var/log/backup/status.json;
+            add_header Access-Control-Allow-Origin *;
+            add_header Content-Type application/json;
+        }
+        
+        location = /monitor.log {
+            alias /var/log/backup/monitor.log;
+            add_header Access-Control-Allow-Origin *;
+            add_header Content-Type text/plain;
+        }
+        
+        # Информация о бэкапах
+        location /backups/ {
+            alias /backups/;
+            autoindex on;
+            autoindex_format json;
+            add_header Access-Control-Allow-Origin *;
+        }
+    }
+}
