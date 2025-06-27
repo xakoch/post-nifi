@@ -1,0 +1,48 @@
+# Данные PostgreSQL (не нужно в git)
+/pgdata/
+/wal_archive/
+
+# Логи системы
+/logs/*.log
+/logs/status.json
+/logs/manual_backup.log
+
+# Бэкапы (большие файлы, делаем отдельно)
+/backups/*.sql
+/backups/full/*.sql
+/backups/wal/*
+
+# Docker volumes data
+/nifi_conf/
+/nifi_logs/
+
+# Временные файлы
+*.tmp
+*.temp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Nginx config cache
+/nginx-*.conf
+
+# Test files
+test_backup.sql
+manual_backup_*.sql
+
+# Environment files (если будут содержать секреты)
+.env.local
+.env.production
